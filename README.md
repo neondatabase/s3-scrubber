@@ -22,33 +22,33 @@ Do `aws sso login --profile dev` to get the SSO access to the bucket to clean, g
 
 #### `tidy`
 
-Iterate over S3 buckets for storage nodes, checking its contents and removing the data, not present in the console.
-Node S3 data that's not removed is then further checked for discrepancies and, sometimes, validated.
+Iterate over S3 buckets for storage nodes, checking its contents and removing the data, not present in the console. Node S3 data that's not removed is then further checked for discrepancies and, sometimes, validated.
 
-Storage node to check could be either pageserver or safekeeper: depending on the node type, the tool determines S3 path to check.
+Unless the global `--delete` argument is provided, this command only dry-runs and logs
+what it would have deleted.
+
+```
+tidy --node-kind=<safekeeper|pageserver> [--depth=<tenant|timeline>] [--skip-validation]
+```
+
+- `--node-kind`: whether to inspect safekeeper or pageserver bucket prefix
+- `--depth`: whether to only search for deletable tenants, or also search for
+  deletable timelines within active tenants. Default: `tenant`
+- `--skip-validation`: skip additional post-deletion checks. Default: `false`
+
 For a selected S3 path, the tool lists the S3 bucket given for either tenants or both tenants and timelines — for every found entry, console API is queried: any deleted or missing in the API entity is scheduled for deletion from S3.
 
-If timelines are verified, only the non-deleted tenants' ones are checked.
+If validation is enabled, only the non-deleted tenants' ones are checked.
 For pageserver, timelines' index_part.json on S3 is also checked for various discrepancies: no files are removed, even if there are "extra" S3 files not present in index_part.json: due to the way pageserver updates the remote storage, it's better to do such removals manually, stopping the corresponding tenant first.
-
-The tool is, by default, run in "dry run" mode that does not remove anything from S3, but still performing all checks and producing the logs for the later analysis.
-
-- NODE_KIND: safekeeper/pageserver
-
-Which S3 key paths to construct when checking for S3 objects' existence.
-
-- TRAVERSING_DEPTH: tenant/timeline, default: tenant
-
-Whether to check and delete tenants only (by default), or also check non-deleted tenants' timelines for existence too.
-For pageserver, this would also include index_part.json validation for all non-deleted timelines, not only timeline existence check.
 
 Command examples:
 
-`env SSO_ACCOUNT_ID=369495373322 REGION=eu-west-1 BUCKET=neon-dev-storage-eu-west-1 CLOUD_ADMIN_API_TOKEN=${NEON_CLOUD_ADMIN_API_STAGING_KEY} CLOUD_ADMIN_API_URL=https://console.stage.neon.tech/admin NODE_KIND=safekeeper cargo run --release -- tidy`
+`env SSO_ACCOUNT_ID=369495373322 REGION=eu-west-1 BUCKET=neon-dev-storage-eu-west-1 CLOUD_ADMIN_API_TOKEN=${NEON_CLOUD_ADMIN_API_STAGING_KEY} CLOUD_ADMIN_API_URL=https://console.stage.neon.tech/admin cargo run --release -- tidy --node-kind=safekeeper`
 
-`env SSO_ACCOUNT_ID=369495373322 REGION=us-east-2 BUCKET=neon-staging-storage-us-east-2 CLOUD_ADMIN_API_TOKEN=${NEON_CLOUD_ADMIN_API_STAGING_KEY} CLOUD_ADMIN_API_URL=https://console.stage.neon.tech/admin NODE_KIND=pageserver TRAVERSING_DEPTH=timeline cargo run --release -- tidy`
+`env SSO_ACCOUNT_ID=369495373322 REGION=us-east-2 BUCKET=neon-staging-storage-us-east-2 CLOUD_ADMIN_API_TOKEN=${NEON_CLOUD_ADMIN_API_STAGING_KEY} CLOUD_ADMIN_API_URL=https://console.stage.neon.tech/admin cargo run --release -- tidy --node-kind=pageserver --depth=timeline`
 
-When dry run stats look satisfying, use `-- --delete` to disable dry run and run the binary with deletion enabled.
+When dry run stats look satisfying, use `-- --delete` before the `tidy` command to
+disable dry run and run the binary with deletion enabled.
 
 See these lines (and lines around) in the logs for the final stats:
 
