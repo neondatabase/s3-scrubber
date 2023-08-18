@@ -14,21 +14,78 @@ use s3_scrubber::{
 };
 use tracing::{info, info_span, warn};
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    let mut args = env::args();
-    let binary_name = args
+use clap::{Parser, Subcommand};
+
+#[derive(Parser)]
+#[command(author, version, about, long_about = None)]
+#[command(arg_required_else_help(true))]
+struct Cli {
+    #[command(subcommand)]
+    command: Command,
+
+    #[arg(short, long, default_value_t = false)]
+    delete: bool,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    Tidy,
+}
+
+struct BucketConfig {
+    region: String,
+    bucket: String,
+    sso_account_id: String,
+}
+
+impl BucketConfig {
+    fn from_env() -> anyhow::Result<Self> {
+        let sso_account_id =
+            env::var("SSO_ACCOUNT_ID").context("'SSO_ACCOUNT_ID' param retrieval")?;
+        let region = env::var("REGION").context("'REGION' param retrieval")?;
+        let bucket = env::var("BUCKET").context("'BUCKET' param retrieval")?;
+
+        Ok(Self {
+            region,
+            bucket,
+            sso_account_id,
+        })
+    }
+}
+
+struct ConsoleConfig {
+    admin_api_url: Url,
+}
+
+impl ConsoleConfig {
+    fn from_env() -> anyhow::Result<Self> {
+        let admin_api_url: Url = env::var("CLOUD_ADMIN_API_URL")
+            .context("'CLOUD_ADMIN_API_URL' param retrieval")?
+            .parse()
+            .context("'CLOUD_ADMIN_API_URL' param parsing")?;
+
+        Ok(Self { admin_api_url })
+    }
+}
+
+async fn tidy(
+    cli: Cli,
+    bucket_config: BucketConfig,
+    console_config: ConsoleConfig,
+) -> anyhow::Result<()> {
+    let binary_name = env::args()
         .next()
         .context("binary name in not the first argument")?;
-    let dry_run = !args.any(|arg| arg == "--delete");
 
     let mut node_kind = env::var("NODE_KIND").context("'NODE_KIND' param retrieval")?;
     node_kind.make_ascii_lowercase();
 
+    let dry_run = !cli.delete;
+    let _guard = init_logging(&binary_name, dry_run, &node_kind);
+    let _main_span = info_span!("tidy", binary = %binary_name, %dry_run).entered();
+
     let skip_validation = env::var("SKIP_VALIDATION").is_ok();
 
-    let _guard = init_logging(&binary_name, dry_run, &node_kind);
-    let _main_span = info_span!("main", binary = %binary_name, %dry_run).entered();
     if dry_run {
         info!("Dry run, not removing items for real");
     } else {
@@ -36,15 +93,6 @@ async fn main() -> anyhow::Result<()> {
     }
 
     info!("skip_validation={skip_validation}");
-
-    let sso_account_id_param =
-        env::var("SSO_ACCOUNT_ID").context("'SSO_ACCOUNT_ID' param retrieval")?;
-    let region_param = env::var("REGION").context("'REGION' param retrieval")?;
-    let bucket_param = env::var("BUCKET").context("'BUCKET' param retrieval")?;
-    let cloud_admin_api_url_param: Url = env::var("CLOUD_ADMIN_API_URL")
-        .context("'CLOUD_ADMIN_API_URL' param retrieval")?
-        .parse()
-        .context("'CLOUD_ADMIN_API_URL' param parsing")?;
 
     let traversing_depth = match env::var("TRAVERSING_DEPTH").ok() {
         Some(traversing_depth) => match traversing_depth.as_str() {
@@ -57,25 +105,28 @@ async fn main() -> anyhow::Result<()> {
             TraversingDepth::Tenant
         }
     };
-    info!("Starting extra S3 removal in bucket {bucket_param}, region {region_param} for node kind '{node_kind}', traversing depth: {traversing_depth:?}");
+    info!("Starting extra S3 removal in bucket {0}, region {1} for node kind '{node_kind}', traversing depth: {traversing_depth:?}", bucket_config.bucket, bucket_config.region);
 
-    info!("Starting extra tenant S3 removal in bucket {bucket_param}, region {region_param} for node kind '{node_kind}'");
+    info!(
+        "Starting extra tenant S3 removal in bucket {0}, region {1} for node kind '{node_kind}'",
+        bucket_config.bucket, bucket_config.region
+    );
     let cloud_admin_api_client = Arc::new(CloudAdminApiClient::new(
         get_cloud_admin_api_token_or_exit(),
-        cloud_admin_api_url_param,
+        console_config.admin_api_url,
     ));
 
-    let bucket_region = Region::new(region_param);
+    let bucket_region = Region::new(bucket_config.region);
     let delimiter = "/".to_string();
-    let s3_client = Arc::new(init_s3_client(sso_account_id_param, bucket_region));
+    let s3_client = Arc::new(init_s3_client(bucket_config.sso_account_id, bucket_region));
     let s3_root = match node_kind.trim() {
         "pageserver" => RootTarget::Pageserver(S3Target {
-            bucket_name: bucket_param,
+            bucket_name: bucket_config.bucket,
             prefix_in_bucket: ["pageserver", "v1", "tenants", ""].join(&delimiter),
             delimiter,
         }),
         "safekeeper" => RootTarget::Safekeeper(S3Target {
-            bucket_name: bucket_param,
+            bucket_name: bucket_config.bucket,
             prefix_in_bucket: ["safekeeper", "v1", "wal", ""].join(&delimiter),
             delimiter,
         }),
@@ -169,6 +220,19 @@ async fn main() -> anyhow::Result<()> {
     }
 
     info!("Done");
-
     Ok(())
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let cli = Cli::parse();
+
+    let bucket_config = BucketConfig::from_env()?;
+
+    match &cli.command {
+        Command::Tidy => {
+            let console_config = ConsoleConfig::from_env()?;
+            tidy(cli, bucket_config, console_config).await
+        }
+    }
 }
