@@ -28,7 +28,7 @@ struct Cli {
     delete: bool,
 }
 
-#[derive(ValueEnum, Clone, Copy)]
+#[derive(ValueEnum, Clone, Copy, Eq, PartialEq)]
 enum NodeKind {
     Safekeeper,
     Pageserver,
@@ -203,7 +203,7 @@ async fn tidy(
         batch_producer_stats.timelines_checked()
     );
 
-    if !matches!(node_kind, NodeKind::Pageserver) {
+    if node_kind == NodeKind::Pageserver {
         info!("node_kind != pageserver, finish without performing validation step");
         return Ok(());
     }
