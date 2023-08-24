@@ -22,7 +22,7 @@ Do `aws sso login --profile dev` to get the SSO access to the bucket to clean, g
 
 #### `tidy`
 
-Iterate over S3 buckets for storage nodes, checking its contents and removing the data, not present in the console. Node S3 data that's not removed is then further checked for discrepancies and, sometimes, validated.
+Iterate over S3 buckets for storage nodes, checking their contents and removing the data not present in the console. Node S3 data that's not removed is then further checked for discrepancies and, sometimes, validated.
 
 Unless the global `--delete` argument is provided, this command only dry-runs and logs
 what it would have deleted.
