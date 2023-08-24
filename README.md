@@ -1,5 +1,8 @@
 # Neon S3 scrubber
 
+This tool directly accesses the S3 buckets used by the Neon `pageserver`
+and `safekeeper`, and does housekeeping such as cleaning up objects for tenants & timelines that no longer exist.
+
 ## Usage
 
 ### Generic Parameters
@@ -85,9 +88,7 @@ If the tool is left as is, a number of things might break:
 
 ### Pageserver preparations
 
-If S3 state is altered first manually, pageserver in-memory state will contain wrong data about S3 state, and tenants/timelines may get recreated on S3 (due to any layer upload due to compaction, pageserver restart, etc.)
-
-So first, we need to remove deleted in console tenants/timelines from pageservers.
+If S3 state is altered first manually, pageserver in-memory state will contain wrong data about S3 state, and tenants/timelines may get recreated on S3 (due to any layer upload due to compaction, pageserver restart, etc.). So before proceeding, for tenants/timelines which are already deleted in the console, we must remove these from pageservers.
 
 First, we need to group pageservers by buckets, https://console.stage.neon.tech/admin/pageservers can be used for all env nodes, then `cat /storage/pageserver/data/pageserver.toml` on every node will show the bucket names and regions needed.
 
